@@ -85,6 +85,12 @@ class CxOneAPI:
         _logger.debug("GET %s", url)
         return self._get_json(url)
 
+    def get_project(self, project_id: str) -> Dict[str, Any]:
+        """Fetch full project details (includes rich group data)."""
+        url = f"{self._api_base_url}/projects/{project_id}"
+        _logger.debug("GET %s", url)
+        return self._get_json(url)
+
     def get_group(self, group_id: str) -> Dict[str, Any]:
         """Return group details (name, full path, etc.) for the provided ID.
 

@@ -37,6 +37,30 @@ CSV_HEADERS = ["group", "project_name", "maturity_level"]
 CSV_FILENAME = "project_maturity_report.csv"
 
 
+def _extract_findings(result_json: Dict[str, any]) -> List[Dict[str, any]]:
+    """Return list of finding dictionaries irrespective of schema version."""
+    if "queries" in result_json:
+        # legacy schema
+        findings: List[Dict[str, any]] = []
+        for q in result_json["queries"]:
+            findings.extend(q.get("results", []))
+        return findings
+    if "findings" in result_json:
+        return result_json["findings"]  # modern key
+    # Fallback: try nested structure
+    if "results" in result_json and isinstance(result_json["results"], list):
+        return result_json["results"]
+    return []
+
+
+def _findings_have_comments(findings: List[Dict[str, any]]) -> bool:
+    """Return True if at least one finding has comments."""
+    for f in findings:
+        if f.get("commentsCount", 0) > 0 or f.get("comments"):
+            return True
+    return False
+
+
 def determine_maturity_level(
     api: CxOneAPI, project_id: str, latest_scans: List[Dict[str, str]]
 ) -> int:
@@ -60,37 +84,22 @@ def determine_maturity_level(
         # No scans at all - treat as Level 1 (out of scope) but keep 2 for now
         return 2
 
-    # ------------------------------------------------------------ Level 3
+    # ------------------------------ Level 3 & count findings
     scan_id = latest_scans[0]["id"]
-    results = api.get_sast_results(scan_id)
+    results_latest = api.get_sast_results(scan_id)
+    findings_latest = _extract_findings(results_latest)
+    finding_count_latest = len(findings_latest)
 
-    findings = results.get("queries", [])
-    any_comment = False
-    finding_count_latest = 0
-    for q in findings:
-        for r in q.get("results", []):
-            finding_count_latest += 1
-            if r.get("commentsCount", 0) > 0:
-                any_comment = True
-
-    if any_comment:
-        # Could still qualify for level 4 – evaluate further
+    level = 2  # default once we know at least one scan exists
+    if _findings_have_comments(findings_latest):
         level = 3
-    else:
-        level = 2
 
-    # ------------------------------------------------------------ Level 4
-    # Need at least two scans
+    # ------------------------------ Level 4 comparison
     if len(latest_scans) >= 2:
         prev_scan_id = latest_scans[1]["id"]
         prev_results = api.get_sast_results(prev_scan_id)
-
-        prev_findings = prev_results.get("queries", [])
-        finding_count_prev = sum(
-            len(q.get("results", [])) for q in prev_findings
-        )
-
-        if finding_count_prev > 0 and finding_count_latest < finding_count_prev:
+        findings_prev = _extract_findings(prev_results)
+        if findings_prev and len(findings_latest) < len(findings_prev):
             level = 4
 
     return level
@@ -141,23 +150,34 @@ def main() -> None:
             level = determine_maturity_level(api, project_id, scans)
 
             # -------------------- Resolve group names --------------------
-            group_ids = project.get("groups") or []
-            group_names: List[str] = []
-            for gid in group_ids:
-                try:
-                    group_info = api.get_group(gid)
-                    group_names.append(
-                        group_info.get("fullName")
-                        or group_info.get("fullPath")
-                        or group_info.get("name")
-                        or gid
+            group_str = ""
+            try:
+                project_full = api.get_project(project_id)
+                grp_objs = project_full.get("groups", [])
+                if grp_objs and isinstance(grp_objs[0], dict):
+                    group_str = " | ".join(
+                        g.get("fullName") or g.get("fullPath") or g.get("name") or g.get("id")
+                        for g in grp_objs
                     )
-                except Exception:  # pylint: disable=broad-except
-                    group_names.append(gid)
-
-            group_str = " | ".join(group_names) if group_names else (
-                project.get("groupName") or project.get("groupPath") or ""
-            )
+                elif grp_objs:
+                    # grp_objs is list of IDs – resolve
+                    group_names: List[str] = []
+                    for gid in grp_objs:
+                        try:
+                            group_info = api.get_group(gid)
+                            group_names.append(
+                                group_info.get("fullName")
+                                or group_info.get("fullPath")
+                                or group_info.get("name")
+                                or gid
+                            )
+                        except Exception:  # pylint: disable=broad-except
+                            group_names.append(gid)
+                    group_str = " | ".join(group_names)
+            except Exception:  # pylint: disable=broad-except
+                pass
+            if not group_str:
+                group_str = project.get("groupName") or project.get("groupPath") or ""
 
             writer.writerow(
                 {
