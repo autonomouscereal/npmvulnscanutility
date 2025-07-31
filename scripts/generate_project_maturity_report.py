@@ -24,6 +24,7 @@ import sys
 from pathlib import Path
 from typing import Dict, List
 
+import requests
 from dotenv import load_dotenv
 
 # Make cxone package importable when script is executed from root dir
@@ -97,7 +98,9 @@ def determine_maturity_level(
 
 def main() -> None:
     """Entry-point for CLI execution."""
-    load_dotenv()
+    # Load .env from project root irrespective of the current working directory
+    from dotenv import find_dotenv
+    load_dotenv(find_dotenv())
 
     # Mandatory environment variables: see README.md
     token_base_url = os.getenv("CXONE_TOKEN_BASE_URL")
@@ -114,13 +117,16 @@ def main() -> None:
         )
         sys.exit(1)
 
+    verify_ssl = os.getenv("CXONE_VERIFY_SSL", "true").lower() not in {"0", "false", "no"}
+
     session = CxOneSession(
         token_base_url=token_base_url,
         tenant=tenant,
         refresh_token=refresh_token,
         client_id=client_id,
+        verify_ssl=verify_ssl,
     )
-    api = CxOneAPI(session=session, api_base_url=api_base_url)
+    api = CxOneAPI(session=session, api_base_url=api_base_url, verify_ssl=verify_ssl)
 
     projects = api.list_projects()
     print(f"Discovered {len(projects)} projects")
@@ -134,9 +140,28 @@ def main() -> None:
             scans = api.get_latest_scans(project_id)
             level = determine_maturity_level(api, project_id, scans)
 
+            # -------------------- Resolve group names --------------------
+            group_ids = project.get("groups") or []
+            group_names: List[str] = []
+            for gid in group_ids:
+                try:
+                    group_info = api.get_group(gid)
+                    group_names.append(
+                        group_info.get("fullName")
+                        or group_info.get("fullPath")
+                        or group_info.get("name")
+                        or gid
+                    )
+                except Exception:  # pylint: disable=broad-except
+                    group_names.append(gid)
+
+            group_str = " | ".join(group_names) if group_names else (
+                project.get("groupName") or project.get("groupPath") or ""
+            )
+
             writer.writerow(
                 {
-                    "group": project.get("groupName") or project.get("groupPath") or "",
+                    "group": group_str,
                     "project_name": project["name"],
                     "maturity_level": level,
                 }

@@ -55,6 +55,8 @@ class CxOneAPI:
         self._api_base_url = api_base_url.rstrip("/")
         self._verify_ssl = verify_ssl
         self._timeout = timeout
+        # Cache to avoid redundant API calls when resolving group names
+        self._group_cache: Dict[str, Any] = {}
 
     # ------------------------------------------------------------------ #
     # Public high-level helpers                                          #
@@ -82,6 +84,21 @@ class CxOneAPI:
         url = f"{self._api_base_url}/sast-results/?scan-id={scan_id}"
         _logger.debug("GET %s", url)
         return self._get_json(url)
+
+    def get_group(self, group_id: str) -> Dict[str, Any]:
+        """Return group details (name, full path, etc.) for the provided ID.
+
+        Results are cached per instance to minimise network usage because the same
+        group is often referenced by many projects.
+        """
+        if group_id in self._group_cache:
+            return self._group_cache[group_id]
+
+        url = f"{self._api_base_url}/groups/{group_id}"
+        _logger.debug("GET %s", url)
+        data = self._get_json(url)
+        self._group_cache[group_id] = data
+        return data
 
     # ------------------------------------------------------------------ #
     # Internal helpers                                                   #

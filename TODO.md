@@ -11,6 +11,6 @@
 | T-05 | Provide Dockerfile for easy packaging | pending |
 | T-06 | Implement retry logic with exponential backoff for network resilience | pending |
 | T-07 | Add CI workflow (GitHub Actions) to run linting and tests | pending |
-| T-08 | Fetch groups hierarchy via dedicated endpoint instead of project field | pending |
+| T-08 | Fetch groups hierarchy via dedicated endpoint instead of project field | completed |
 | T-09 | Integrate other CxOne capabilities (e.g. Open Source Analysis) | pending |
 | T-10 | Parameterise CSV output path & format (support Excel, JSON) | pending |

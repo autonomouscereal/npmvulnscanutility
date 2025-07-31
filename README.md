@@ -68,6 +68,7 @@ cp env.example .env
 | `CXONE_REFRESH_TOKEN` | The PAT / refresh token copied from the portal | `xxxxxxxx-xxxx-...` |
 | `CXONE_API_BASE_URL` | Base URL for the API **with** `/api/` suffix | `https://cxone-preprod/api/` |
 | `CXONE_CLIENT_ID` | OAuth client ID – keep `ast-app` unless you have a custom app | `ast-app` |
+| `CXONE_VERIFY_SSL` | `true` (default) or `false` to *skip* SSL verification – useful for self-signed certs | `false` |
 
 > **Note**: `.env` is **excluded** from version control in `.gitignore`.
 
@@ -132,7 +133,3 @@ if necessary.
   `CxOneSession` / `CxOneAPI`.
 
 ---
-
-## 7. License
-
-MIT – see `LICENSE` file (to be added).
