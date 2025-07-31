@@ -57,6 +57,7 @@ class CxOneAPI:
         self._timeout = timeout
         # Cache to avoid redundant API calls when resolving group names
         self._group_cache: Dict[str, Any] = {}
+        self._have_group_index = False
 
     # ------------------------------------------------------------------ #
     # Public high-level helpers                                          #
@@ -91,18 +92,52 @@ class CxOneAPI:
         _logger.debug("GET %s", url)
         return self._get_json(url)
 
+    def list_groups(self, *, limit: int = 1000) -> List[Dict[str, Any]]:
+        """Retrieve all groups for the tenant (paginated) and cache them.
+
+        Endpoint: ``GET /access-management/groups`` supports pagination via
+        ``offset`` / ``limit``; we loop until the returned slice is < limit.
+        """
+        groups: List[Dict[str, Any]] = []
+        offset = 0
+        while True:
+            url = f"{self._api_base_url}/access-management/groups?offset={offset}&limit={limit}"
+            _logger.debug("GET %s", url)
+            data = self._get_json(url)
+            if not isinstance(data, list):
+                break
+            groups.extend(data)
+            if len(data) < limit:
+                break
+            offset += limit
+
+        # Cache results for quick lookup
+        for g in groups:
+            gid = g.get("id")
+            if gid:
+                self._group_cache[gid] = g
+        self._have_group_index = True
+        return groups
+
     def get_group(self, group_id: str) -> Dict[str, Any]:
         """Return group details (name, full path, etc.) for the provided ID.
 
-        Results are cached per instance to minimise network usage because the same
-        group is often referenced by many projects.
+        Uses local cache; falls back to API call if not present.
         """
         if group_id in self._group_cache:
             return self._group_cache[group_id]
 
-        url = f"{self._api_base_url}/groups/{group_id}"
+        # If we have already indexed all groups and ID not found, just return stub
+        if self._have_group_index:
+            return {"id": group_id}
+
+        # Use search by ids query parameter (supports comma-separated list)
+        url = f"{self._api_base_url}/access-management/groups?ids={group_id}"
         _logger.debug("GET %s", url)
         data = self._get_json(url)
+        # The endpoint returns an *array*
+        if isinstance(data, list) and data:
+            data = data[0]
         self._group_cache[group_id] = data
         return data
 

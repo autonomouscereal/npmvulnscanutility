@@ -140,6 +140,9 @@ def main() -> None:
     projects = api.list_projects()
     print(f"Discovered {len(projects)} projects")
 
+    # Preload all groups to build mapping id -> object (name/path)
+    api.list_groups()
+
     with open(CSV_FILENAME, mode="w", newline="", encoding="utf-8") as fp:
         writer = csv.DictWriter(fp, fieldnames=CSV_HEADERS)
         writer.writeheader()
