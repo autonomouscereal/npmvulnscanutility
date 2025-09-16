@@ -49,6 +49,7 @@ session.headers.update({
     "User-Agent": "gov-org-npm-scanner/1.0"
 })
 
+#--------------------------------
 # Load bad packages list (list of {"name": "...", "versions": ["1.2.3", ...]})
 with open(BAD_PACKAGES_FILE, "r", encoding="utf-8") as f:
     bad_packages_raw = json.load(f)

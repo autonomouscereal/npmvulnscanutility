@@ -1,0 +1,41 @@
+[
+    { "name": "ansi-styles",         "versions": ["6.2.2"] },
+    { "name": "chalk",               "versions": ["5.6.1"] },
+    { "name": "debug",               "versions": ["4.4.2"] },
+    { "name": "supports-color",      "versions": ["10.2.1"] },
+    { "name": "strip-ansi",          "versions": ["7.1.1"] },
+    { "name": "ansi-regex",          "versions": ["6.2.1"] },
+    { "name": "wrap-ansi",           "versions": ["9.0.1"] },
+    { "name": "color-convert",       "versions": ["3.1.1"] },
+    { "name": "color-name",          "versions": ["2.0.1"] },
+    { "name": "is-arrayish",         "versions": ["0.3.3"] },
+    { "name": "slice-ansi",          "versions": ["7.1.1"] },
+    { "name": "color-string",        "versions": ["2.1.1"] },
+    { "name": "simple-swizzle",      "versions": ["0.2.3"] },
+    { "name": "supports-hyperlinks", "versions": ["4.1.1"] },
+    { "name": "has-ansi",            "versions": ["6.0.1"] },
+    { "name": "chalk-template",      "versions": ["1.1.1"] },
+    { "name": "backslash",           "versions": ["0.2.1"] },
+  
+    { "name": "proto-tinker-wc",     "versions": ["0.1.87"] },
+    { "name": "prebid",              "versions": ["10.9.1","10.9.2"] },
+    { "name": "prebid.js",           "versions": ["10.9.2"] },
+    { "name": "prebid-universal-creative", "versions": ["1.17.3"] },
+  
+    { "name": "@ctrl/tinycolor",     "versions": ["4.1.1", "4.1.2"] },
+    { "name": "@nativescript-community/ui-material-core", "versions": ["7.2.76"] },
+  
+    { "name": "@crowdstrike/commitlint", "versions": ["8.1.2"] },
+    { "name": "@crowdstrike/falcon-shoelace", "versions": ["0.4.2"] },
+    { "name": "@crowdstrike/logscale-search", "versions": ["1.205.2"] },
+  
+    { "name": "rxnt-authentication", "versions": ["0.0.6"] },
+    { "name": "bundle.js", "versions": ["*"] },
+  
+    { "name": "nx", "versions": ["<compromised versions observed in Aug-Sep 2025; check advisories>"] },
+  
+    { "name": "duckdb-wasm", "versions": ["<compromised-versions-observed>"] },
+  
+    { "name": "@coveops/abi", "versions": ["2.0.1"] }
+  ]
+  
