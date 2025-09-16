@@ -1,4 +1,6 @@
 # scan_org_npm_supply_chain.py
+
+
 import os
 import json
 import re
@@ -9,7 +11,9 @@ import logging
 from logging.handlers import RotatingFileHandler
 from typing import Dict, Set, List
 import requests
+import certifi  # used as fallback
 from dotenv import load_dotenv
+from tls_helper import auto_fetch_and_trust_cert
 
 load_dotenv()
 
@@ -42,12 +46,53 @@ fh.setLevel(logging.DEBUG)
 fh.setFormatter(fmt)
 logger.addHandler(fh)
 
+# ===== TLS auto-fetch & trust integration =====
+GITHUB_SSL_NO_VERIFY = os.getenv("GITHUB_SSL_NO_VERIFY", "0") == "1"
+GITHUB_SSL_CA_BUNDLE = os.getenv("GITHUB_SSL_CA_BUNDLE")
+AUTO_FETCH_SERVER_CERT = os.getenv("AUTO_FETCH_SERVER_CERT", "1") == "1"
+AUTO_TRUST_FETCHED_CERT = os.getenv("AUTO_TRUST_FETCHED_CERT", "1") == "1"
+
+verify_setting = None
+
+if GITHUB_SSL_NO_VERIFY:
+    logger.warning("GITHUB_SSL_NO_VERIFY=1 => SSL verification DISABLED (insecure).")
+    verify_setting = False
+else:
+    if GITHUB_SSL_CA_BUNDLE and os.path.isfile(GITHUB_SSL_CA_BUNDLE):
+        logger.info("Using explicit CA bundle from GITHUB_SSL_CA_BUNDLE: %s", GITHUB_SSL_CA_BUNDLE)
+        verify_setting = GITHUB_SSL_CA_BUNDLE
+    else:
+        if AUTO_FETCH_SERVER_CERT:
+            try:
+                fetched = auto_fetch_and_trust_cert(GITHUB_API_BASE, OUTPUT_DIR, auto_trust=AUTO_TRUST_FETCHED_CERT)
+                if fetched:
+                    logger.info("Auto-fetched certificate and using it for TLS verification: %s", fetched)
+                    verify_setting = fetched
+                else:
+                    logger.info("Auto-fetch ran but AUTO_TRUST_FETCHED_CERT is False; falling back.")
+            except Exception as e:
+                logger.warning("Auto-fetch cert failed: %s", e)
+
+        if verify_setting is None:
+            try:
+                verify_setting = certifi.where()
+                logger.info("Falling back to certifi CA bundle: %s", verify_setting)
+            except Exception:
+                logger.warning("certifi not available; will set verify=False (INSECURE)")
+                verify_setting = False
+
+# Create requests session and apply verify
 session = requests.Session()
+session.verify = verify_setting
 session.headers.update({
     "Authorization": f"token {GITHUB_TOKEN}",
     "Accept": "application/vnd.github.v3+json",
     "User-Agent": "gov-org-npm-scanner/1.0"
 })
+logger.debug("requests.Session created; session.verify=%s", session.verify)
+# ============================================================
+
+ 
 
 #--------------------------------
 # Load bad packages list (list of {"name": "...", "versions": ["1.2.3", ...]})
