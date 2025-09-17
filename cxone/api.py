@@ -155,3 +155,40 @@ class CxOneAPI:
         )
         resp.raise_for_status()
         return resp.json()
+
+    # ------------------------------------------------------------------ #
+    # Repos manager / SCM import                                         #
+    # ------------------------------------------------------------------ #
+
+    def import_scm_projects(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Import and optionally scan SCM projects in bulk.
+
+        This wraps the `POST /repos-manager/scm-projects` endpoint which accepts
+        up to N projects per request. The caller is responsible for batching.
+
+        Parameters
+        ----------
+        payload:
+            The full JSON payload as described by the API (contains
+            `scm`, `organization`, `defaultProjectSettings`,
+            `scanProjectsAfterImport`, and `projects`).
+        """
+        url = f"{self._api_base_url}/repos-manager/scm-projects"
+        headers = {
+            "Accept": "application/json; version=1.0",
+            "Content-Type": "application/json; version=1.0",
+            **self._session.auth_header(),
+        }
+        _logger.debug("POST %s (projects=%s)", url, len(payload.get("projects", [])))
+        resp = requests.post(
+            url,
+            json=payload,
+            headers=headers,
+            timeout=self._timeout,
+            verify=self._verify_ssl,
+        )
+        resp.raise_for_status()
+        try:
+            return resp.json()
+        except ValueError:
+            return {"status": resp.status_code, "text": resp.text}
