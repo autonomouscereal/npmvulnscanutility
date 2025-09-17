@@ -126,6 +126,21 @@ session.headers.update({
     "User-Agent": "gov-org-npm-scanner/1.0"
 })
 logger.debug("requests.Session created; session.verify=%s", session.verify)
+# Suppress SSL warnings globally if verification is disabled
+try:
+    if session.verify is False:
+        import urllib3  # type: ignore
+        urllib3.disable_warnings(getattr(urllib3.exceptions, "InsecureRequestWarning"))
+        # Some environments vendor urllib3 under requests.packages
+        try:
+            requests.packages.urllib3.disable_warnings(  # type: ignore[attr-defined]
+                requests.packages.urllib3.exceptions.InsecureRequestWarning  # type: ignore[attr-defined]
+            )
+        except Exception:
+            pass
+        logger.warning("SSL verification disabled for GitHub; InsecureRequestWarning suppressed.")
+except Exception:
+    pass
 # ============================================================
 
  
@@ -166,6 +181,7 @@ logger.info(f"Loaded {len(bad_map)} watched packages from {BAD_PACKAGES_FILE}")
 # Helper: GitHub pagination GET
 def gh_get(url, params=None):
     params = params or {}
+    logger.debug("HTTP GET %s params=%s", url, params)
     resp = session.get(url, params=params, timeout=30)
     if resp.status_code == 403 and 'rate limit' in resp.text.lower():
         reset = int(resp.headers.get("X-RateLimit-Reset", time.time()+60))
@@ -173,6 +189,7 @@ def gh_get(url, params=None):
         logger.warning(f"Rate limited. Sleeping {wait}s")
         time.sleep(wait)
         resp = session.get(url, params=params, timeout=30)
+        logger.debug("Retry HTTP GET %s -> %s", url, resp.status_code)
     # Adaptive backoff if remaining is critically low
     try:
         rem = int(resp.headers.get("X-RateLimit-Remaining", "10"))
@@ -183,6 +200,7 @@ def gh_get(url, params=None):
             time.sleep(wait)
     except Exception:
         pass
+    logger.debug("HTTP %s -> %s", url, resp.status_code)
     resp.raise_for_status()
     return resp
 
@@ -390,7 +408,8 @@ def scan_repo(owner: str, repo_name: str):
         repo_meta = gh_get(repo_url).json()
     except Exception as e:
         logger.exception(f"Failed to fetch repo metadata for {repo_full}: {e}")
-        return []
+        # Return minimal context so caller doesn't crash
+        return [], {"repo": repo_full, "error": "meta_fetch_failed"}
 
     default_branch = repo_meta.get("default_branch", "main")
     pushed_at = repo_meta.get("pushed_at")
@@ -400,13 +419,15 @@ def scan_repo(owner: str, repo_name: str):
             last_activity = datetime.fromisoformat(pushed_at.replace("Z", "+00:00")).isoformat()
     except Exception:
         last_activity = pushed_at
+    sha = None
     # Get the tree recursively (may be large)
     try:
         ref_resp = gh_get(f"{GITHUB_API_BASE}/repos/{owner}/{repo_name}/git/refs/heads/{default_branch}").json()
         sha = ref_resp.get("object", {}).get("sha")
         if not sha:
             logger.warning(f"No sha for default branch {default_branch} in {repo_full}")
-            return []
+            # Return minimal context to avoid tuple unpack issues
+            return [], {"repo": repo_full, "default_branch": default_branch, "last_activity": last_activity}
         # Checkpoint logic (skip unchanged repos)
         checkpoints_path = os.path.join(OUTPUT_DIR, "checkpoints.json")
         if ENABLE_CHECKPOINTS and os.path.isfile(checkpoints_path):
@@ -426,7 +447,7 @@ def scan_repo(owner: str, repo_name: str):
                         "contact_emails": contact_emails,
                         **details,
                         "skipped": True,
-                        "checkpoint_sha": sha,
+                        "checkpoint_sha": sha or "",
                     }
                     return [], repo_context
             except Exception:
@@ -604,7 +625,7 @@ def scan_repo(owner: str, repo_name: str):
         **details,
         "suspicious_scripts": suspicious_scripts,
         "npmrc_hits": npmrc_hits,
-        "checkpoint_sha": sha,
+        "checkpoint_sha": sha or "",
         **protections,
     }
     return results, repo_context
@@ -656,7 +677,8 @@ def main():
                 if batch and enable_import and api:
                     try:
                         payload = item["payload_builder"](batch)
-                        logger.info("Submitting final batch to CxOne (size=%s)", len(batch))
+                        repo_list = ", ".join(p.get("scm_url", "") for p in batch)
+                        logger.info("Submitting final batch to CxOne (size=%s): %s", len(batch), repo_list)
                         if not DRY_RUN:
                             api.import_scm_projects(payload)
                     except Exception as ex:
@@ -669,8 +691,8 @@ def main():
                     try:
                         payload = item["payload_builder"](batch)
                         # Inline comment: example scm base + owner/repo result
-                        # e.g., f"{GITHUB_SCM_BASE_URL}/YourTeam/your-repo"
-                        logger.info("Submitting batch to CxOne (size=%s)", len(batch))
+                        repo_list = ", ".join(p.get("scm_url", "") for p in batch)
+                        logger.info("Submitting batch to CxOne (size=%s): %s", len(batch), repo_list)
                         if not DRY_RUN:
                             api.import_scm_projects(payload)
                         batch.clear()
@@ -680,6 +702,12 @@ def main():
                         batch.clear()
 
     if enable_import:
+        logger.info(
+            "CxOne import enabled: orgIdentity=%s, batch_size=%s, scan_after_import=%s",
+            CXONE_ORG_IDENTITY,
+            CXONE_IMPORT_BATCH_SIZE,
+            CXONE_SCAN_AFTER_IMPORT,
+        )
         t = threading.Thread(target=importer_worker, name="cxone_importer", daemon=True)
         t.start()
 
@@ -692,14 +720,17 @@ def main():
         owner = repo["owner"]["login"]
         name = repo["name"]
         logger.info(f"[{idx}/{repo_count}] Scanning {owner}/{name}")
+        logger.debug("Repo meta URL: %s", f"{GITHUB_API_BASE}/repos/{owner}/{name}")
         try:
             res, repo_ctx = scan_repo(owner, name)
+            logger.debug("Scan complete: %s findings=%s skipped=%s", f"{owner}/{name}", len(res or []), repo_ctx.get("skipped", False))
             if res:
                 all_findings.extend(res)
             per_repo_ctx[f"{owner}/{name}"] = repo_ctx
             # Determine repo-level status from npm-related findings only (exclude workflow-only repos)
             npm_related = [r for r in res if r.get("Package")]
             if npm_related:
+                logger.debug("Repo %s npm-related entries=%s", f"{owner}/{name}", len(npm_related))
                 # If any not Safe, enqueue for import
                 worst = "Safe"
                 ordering = {"Compromised": 3, "Unknown": 2, "Suspicious_Workflow": 1, "Safe": 0}
@@ -713,6 +744,7 @@ def main():
                     branch = repo_ctx.get("default_branch") or "main"
                     if not branch:
                         import_failures.append({"repo": f"{owner}/{name}", "reason": "No default branch"})
+                        logger.warning("Skipped CxOne import for %s: no default branch", f"{owner}/{name}")
                     else:
                         def _payload_builder(projects: List[dict]):
                             scanners = [
@@ -753,6 +785,7 @@ def main():
                             return base
 
                         severity = "P1" if worst == "Compromised" else "P2"
+                        logger.info("Queueing for CxOne import: %s branch=%s severity=%s", scm_url, branch, severity)
                         import_queue.put({
                             "scm_url": scm_url,  # Example: https://git.org.gov/owner/repo
                             "branch": branch,    # Example: main
